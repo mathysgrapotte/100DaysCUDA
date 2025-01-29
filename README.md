@@ -1,5 +1,29 @@
+# Building Deep Learning in CUDA! 🚀
+
+from [Umar Jamil's challenge](https://github.com/hkproj/100-days-of-gpu)
+
+## Goal
+
+Goal is to reproduce some of the results of [The Principles of Deep Learning Theory](https://arxiv.org/abs/2106.10165) using CUDA and benchmark against pytorch on the way. 
+
+## Roadmap
+
+| Roadmap | Status |
+|---------|--------|
+| Vector Addition in CUDA | 🫠 |
+| Matrix Addition in CUDA | 🫠 |
+| Vector Multiplication in CUDA | 🫠 |
+| Matrix Multiplication in CUDA | 🫠 |
+| One Layer MLP Forward Pass | 🫠 |
+| One Layer MLP Backward Pass | 🫠 |
+| Softmax Activation Function | 🫠 |
+| SGD Optimizer in CUDA | 🫠 |
+| Train on Titanic Dataset | 🫠 |
+| VR1 Network Width -> ∞ = Gaussian distribution | 🫠 |
 
 
+
+## Progress Log
 
 | Day      | Progress & Notes |
 |----------|-----------------|
