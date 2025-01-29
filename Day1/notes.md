@@ -77,3 +77,54 @@ __global__ void kernel() {
 ```
 
 This is correct for instance. 
+
+# How do units of computations (grid, blocks and threads) synchronize ?
+
+## Thread level (within a block)
+
+Threads within the same block can be synchronized, meaning all threads in a block will reach the same point (waiting i.e. performance loss)
+
+```cuda 
+__global__ void kernel() {
+    // Some computation by all threads
+    __syncthreads();  // Wait for all threads in block
+    // Next computation
+}
+```
+## Block level (within the grid)
+
+There is no direct sync between blocks, those execute independently and in any order
+
+```cuda
+__global__ void incorrect_kernel() {
+    // THIS IS WRONG - No guarantee block 1 executes before block 2
+    if (blockIdx.x == 1) {
+        // Do something
+        // Try to signal block 2
+    }
+    if (blockIdx.x == 2) {
+        // Wait for block 1's signal
+        // Do something else
+    }
+}
+```
+
+## Grid level
+
+Kernels execute on the grid, and are synced in between kernels
+
+```cuda 
+// Split into two kernels if you need block synchronization
+__global__ void kernel1() {
+    // Operations for first phase
+}
+
+__global__ void kernel2() {
+    // Operations for second phase
+}
+
+// In host code:
+kernel1<<<grid, block>>>();
+cudaDeviceSynchronize();  // Wait for all blocks to complete
+kernel2<<<grid, block>>>();
+```
