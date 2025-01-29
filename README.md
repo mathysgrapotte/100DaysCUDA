@@ -10,7 +10,7 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 
 | Roadmap | Status |
 |---------|--------|
-| Vector Addition in CUDA | 🫠 |
+| Vector Addition in CUDA | 🤗 |
 | Matrix Addition in CUDA | 🫠 |
 | Vector Multiplication in CUDA | 🫠 |
 | Matrix Multiplication in CUDA | 🫠 |
@@ -27,7 +27,7 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 
 | Day      | Progress & Notes |
 |----------|-----------------|
-| Day 1    |  |
+| Day 1    | Implemented vector addition in CUDA. Learned about CUDA thread hierarchy (grids/blocks/threads), memory management (cudaMalloc/cudaMemcpy), and kernel execution. Created a simple vector addition program that adds two arrays of 1024 elements in parallel using 256 threads per block. Focused on proper memory allocation, transfers between host/device, and error handling. |
 | Day 2    |  |
 | Day 3    |  |
 | Day 4    |  |
