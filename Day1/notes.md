@@ -2,6 +2,7 @@
 
 Grids contain block that contain threads
 
+```
 Grid
 ├── Block 0 (blockIdx.x = 0)
 │   ├── Thread 0 (threadIdx.x = 0)
@@ -13,11 +14,13 @@ Grid
 │   ├── Thread 1 (threadIdx.x = 1)
 │   └── Thread 2 (threadIdx.x = 2)
 │      ...
+```
 
 # CUDA Thread Spatial Organization
 
 Cuda threads are organized in block in a 2d organization 
 
+```
 Block (0,0)
 Block (1,0)
 ...
@@ -37,6 +40,7 @@ Block (1,2)
 
 blockDim.x = 4 (width)
 blockDim.y = 3 (height)
+```
 
 # How do blocks work ? 
 
