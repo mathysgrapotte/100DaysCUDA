@@ -11,7 +11,7 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 | Roadmap | Status |
 |---------|--------|
 | Vector Addition in CUDA | 🤗 |
-| Matrix Addition in CUDA | 🫠 |
+| Matrix Addition in CUDA | 🤗 |
 | Vector Multiplication in CUDA | 🫠 |
 | Matrix Multiplication in CUDA | 🫠 |
 | One Layer MLP Forward Pass | 🫠 |
@@ -28,7 +28,13 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 | Day      | Progress & Notes |
 |----------|-----------------|
 | Day 1    | Implemented vector addition in CUDA. Learned about CUDA thread hierarchy (grids/blocks/threads), memory management (cudaMalloc/cudaMemcpy), and kernel execution. Created a simple vector addition program that adds two arrays of 1024 elements in parallel using 256 threads per block. Focused on proper memory allocation, transfers between host/device, and error handling. |
-| Day 2    |  |
+| Day 2    | Implemented matrix addition in CUDA. Deep dive into memory coalescing, thread synchronization, and grid organization. Learned about:
+- Memory layout and transactions (128-byte segments)
+- Coalesced vs non-coalesced memory access patterns
+- 2D grid/block organization for matrix operations
+- CUDA synchronization importance (cudaDeviceSynchronize)
+- Thread execution model and register usage
+Created a matrix addition program handling 1024x1024 matrices using 16x16 thread blocks. |
 | Day 3    |  |
 | Day 4    |  |
 | Day 5    |  |
