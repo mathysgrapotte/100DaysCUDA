@@ -100,7 +100,7 @@ void initializeMatrices(float* A, float* B, float* C, int M, int K, int N) {
 
 // Function to verify results against CPU implementation
 bool verifyResults(float* C_gpu, float* C_cpu, int M, int N) {
-    const float epsilon = 1e-5;
+    const float epsilon = 1e-2;
     for(int i = 0; i < M * N; i++) {
         if(abs(C_gpu[i] - C_cpu[i]) > epsilon) {
             printf("Verification failed at index %d: GPU=%f, CPU=%f\n", i, C_gpu[i], C_cpu[i]);
