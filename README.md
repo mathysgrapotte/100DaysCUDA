@@ -12,8 +12,17 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 |---------|--------|
 | Vector Addition in CUDA | 🤗 |
 | Matrix Addition in CUDA | 🤗 |
-| Vector Multiplication in CUDA | 🫠 |
-| Matrix Multiplication in CUDA | 🫠 |
+| MatMul Level 0: Naive Implementation | 🫠 |
+| MatMul Level 1: Memory Coalescing | 🫠 |
+| MatMul Level 2: Shared Memory Tiling | 🫠 |
+| MatMul Level 3: Loop Unrolling | 🫠 |
+| MatMul Level 4: Double Buffering | 🫠 |
+| MatMul Level 5: Advanced Block Tiling | 🫠 |
+| MatMul Level 6: Warp-level Optimizations | 🫠 |
+| MatMul Level 7: Register Tiling & Vectorization | 🫠 |
+| MatMul Level 8: Tensor Cores (Optional) | 🫠 |
+| MatMul Level 9: Multi-GPU & CUDA Streams | 🫠 |
+| MatMul Level 10: Final Optimized Kernel | 🫠 |
 | One Layer MLP Forward Pass | 🫠 |
 | One Layer MLP Backward Pass | 🫠 |
 | Softmax Activation Function | 🫠 |
