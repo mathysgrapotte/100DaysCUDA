@@ -30,6 +30,23 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 | Train on Titanic Dataset | 🫠 |
 | VR1 Network Width -> ∞ = Gaussian distribution | 🫠 |
 
+## Side Quests
+
+### CUDA Propr
+
+Propr is a package for differential expression analysis in R. It is based on the log-variance ratio (LRV) method.
+The main backend is written in Rcpp, so quite optimized for CPU.
+
+Unfortunately, this is still mega slow, CUDA comes to the rescue as it is an embarrassingly parallel problem.
+
+See Day4 for the implementation and notes for the algorithm.
+
+| Roadmap | Status |
+|---------|--------|
+| Implement Log Variance Ratio in CUDA | 🤗 |
+| Implement Propr in CUDA | 🤗 |
+| benchmark both and make sure we get the same results | 🤗 |
+
 
 
 ## Progress Log
@@ -39,7 +56,7 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 | Day 1    | Implemented vector addition in CUDA. Learned about CUDA thread hierarchy (grids/blocks/threads), memory management (cudaMalloc/cudaMemcpy), and kernel execution. Created a simple vector addition program that adds two arrays of 1024 elements in parallel using 256 threads per block. Focused on proper memory allocation, transfers between host/device, and error handling. |
 | Day 2    | Implemented matrix addition in CUDA. Deep dive into memory coalescing, thread synchronization, and grid organization. Learned about memory layout, coalesced access patterns, 2D grid/block organization, CUDA synchronization, and thread execution model. Created a matrix addition program handling 1024x1024 matrices using 16x16 thread blocks. |
 | Day 3    | Started matrix multiplication optimization journey with Level 0 (naive implementation). Created comprehensive performance benchmarking infrastructure for measuring kernel execution, memory transfers, GFLOPS, bandwidth and CPU vs GPU comparisons. Created detailed notes on CUDA block size selection, covering hardware constraints, matrix size considerations, memory access patterns and optimization strategies. Implemented naive matrix multiplication with 16x16 thread blocks for 1024x1024 matrices. |
-| Day 4    |  |
+| Day 4    | Implemented Log Variance Ratio in CUDA. Learned about shared memory and about sum reduction. Yields 200x speedup over Rcpp log ratio function !! |
 | Day 5    |  |
 | Day 6    |  |
 | Day 7    |  |

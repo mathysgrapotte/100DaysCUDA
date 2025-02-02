@@ -1,8 +1,8 @@
-Below is an explanation of what the unweighted (non‐alpha-transformed) branch of the C++ code does and a high-level plan for implementing that functionality in CUDA.
 
----
 
-## What the Program Does (Unweighted, Non‑transformed Mode)
+## What the current program does (Unweighted, Non‑transformed Mode)
+
+See [propr](https://github.com/tpq/propr/blob/master/src/lrv.cpp) for the current implementation.
 
 In the non‐weighted branch—i.e. when the parameter `a` is NA and `weighted` is false—the program processes the input matrix **Y** (where rows are samples and columns are features, for example gene expression values) as follows:
 
@@ -43,14 +43,23 @@ Because the variance computations for each pair are independent, the task is hig
 ### 2. Parallelization Strategy
 - **Mapping Pairs to Threads/Blocks:**  
   Each unique pair (i, j) can be computed independently.  
-  There are two common approaches:
-  - **2D Grid Approach:**  
-    Launch a 2D grid of threads (with dimensions p × p) and let each thread check if its indices satisfy i > j.  
-  - **One Block per Pair:**  
-    Enumerate the $\frac{p(p-1)}{2}$ pairs and assign one thread block to each pair.  
-    Within each block, use multiple threads to perform a parallel reduction over the N samples.
+  We will use a 1d grid of threads since we are interested in pairs of vectors (1D elements).
     
-  The second approach is usually preferred because each pair's variance calculation involves a reduction (summing values and summing squares).
+i.e. 
+
+```cpp
+// Grid dimensions: one block per pair
+int num_pairs = (nb_genes * (nb_genes - 1)) / 2;
+int threads_per_block = 256; // tune this
+int num_blocks = num_pairs;
+
+computeLogRatioVariance<<<num_blocks, threads_per_block, shared_mem_size>>>(
+    d_Y,           // input matrix
+    d_variances,   // output array
+    nb_samples,    // N
+    nb_genes       // p
+);
+```
 
 ### 3. Kernel Design
 For each pair (i, j), you need to:
@@ -66,39 +75,124 @@ For each pair (i, j), you need to:
 - **Store the Result:**  
   Write the computed variance for pair (i, j) to the appropriate location in the output array.
 
-_Note:_ You may use CUDA libraries such as Thrust or CUB to simplify parallel reductions.
 
-### 4. Implementation Steps
-1. **Memory Allocation:**  
-   Allocate device memory for matrix Y and the output vector.
-2. **Data Transfer:**  
-   Copy the host matrix Y to device memory.
-3. **Kernel Launch:**  
-   Launch a kernel where each block is responsible for one pair (i, j).  
-   - Within the kernel, each thread processes a subset of the N samples.
-   - Use shared memory to accumulate partial sums for the mean and variance.
+
+
 4. **Final Reduction:**  
    Perform a final reduction (within each block) to compute the complete sum and sum of squares.
 5. **Store and Copy Back:**  
    Write the result for each pair to the output array in global memory, and then copy the entire output vector back to the host.
-6. **Post-Processing:**  
-   Optionally, post-process or convert the result vector to a half‑matrix format if needed by your application.
 
 ### 5. Testing and Validation
 - **Validation:**  
   Compare the output from your CUDA implementation with the Rcpp version (using a small test matrix) to ensure that variances match.
 - **Performance Tuning:**  
-  Optimize memory accesses, use shared memory effectively, and consider using asynchronous kernel launches and streams if the number of pairs is very large.
+  Optimize memory accesses, use shared memory effectively, and consider using asynchronous kernel launches and streams if the number of pairs is very large. ((future work))
 
 ---
+## optimisation tricks 
 
-## Summary
+- sum reduction 
 
-- **Description:**  
-  In the unweighted, non-transformed mode, the program computes the variance of the log ratios of every pair of columns (features) in the input matrix Y.
-- **CUDA Implementation Plan:**  
-  Transfer Y to the GPU, then for each pair (i, j) use a CUDA kernel (with block-level parallel reductions) to compute the variance of $\log(Y_{\ast, i} / Y_{\ast, j})$ across all samples, and finally copy the result back to the host.
+The idea of sum reduction is to have multiple threads compute sums at the same time and use sync inbetween to make sure we are synced.
 
-This high-level plan leverages the inherent parallelism of the problem (each pair can be computed independently) and uses efficient reduction techniques on the GPU to handle the per-pair computations.
+Here is the implementation details (loop is unrolled)
 
-If you need further details or code snippets for any of these steps, please let me know!
+```cpp
+// Initial state of mean array with 8 elements:
+// mean = [5, 2, 7, 1, 8, 3, 6, 4]
+//         0  1  2  3  4  5  6  7  (indices)
+
+// Reduction loop unrolled:
+__syncthreads();
+if (threadIdx.x < 4) {  // stride = 4
+    mean[threadIdx.x] += mean[threadIdx.x + 4];
+}
+// After first iteration:
+// mean = [13, 5, 13, 5, 8, 3, 6, 4]
+//         0   1   2  3  4  5  6  7
+// Thread 0 added indices 0+4
+// Thread 1 added indices 1+5
+// Thread 2 added indices 2+6
+// Thread 3 added indices 3+7
+
+__syncthreads();
+if (threadIdx.x < 2) {  // stride = 2
+    mean[threadIdx.x] += mean[threadIdx.x + 2];
+}
+// After second iteration:
+// mean = [26, 10, 13, 5, 8, 3, 6, 4]
+//         0   1   2  3  4  5  6  7
+// Thread 0 added indices 0+2
+// Thread 1 added indices 1+3
+
+__syncthreads();
+if (threadIdx.x < 1) {  // stride = 1
+    mean[threadIdx.x] += mean[threadIdx.x + 1];
+}
+// Final result:
+// mean = [36, 10, 13, 5, 8, 3, 6, 4]
+//         0   1   2  3  4  5  6  7
+// Thread 0 added indices 0+1
+```
+
+- shared memory
+
+When two elements are not in the same warp, we can load them into shared memory to decrease the number of global memory access.
+When we then transfer the data, each thread will load a datapoint and move it to shared memory. 
+
+# TODO: understand what are the limits of shared memory, and how to use it efficiently.
+
+```cpp
+__shared__ float shared_mem[32];
+
+shared_mem[threadIdx.x] = Y[threadIdx.x];
+```	
+
+## misc : 
+
+Current R implementation is compared to CPU implementation in [propr_compare.cpp](propr_compare.cpp) (run test.R to see the results).
+
+## Results
+
+```
+Device: NVIDIA RTX A4500
+Compute Capability: 8.6
+Max threads per block: 1024
+Max threads in X-dimension: 1024
+
+Performance Metrics:
+Matrix Size: 80x10000
+  +-- Kernel Time:     447.00 ms
+  +-- Memory Time:     0.71 ms
+Total Time: 447.715 ms
+Performance: 35.79 GFLOPs
+Memory Bandwidth: 0.02 GB/s
+Results: PASSED
+
+=== Log Variance Ratio Benchmark Report ===
+============================================
+Performance Summary:
+--------------------------------------------
+Total Execution Time: 447.71 ms
+  +-- Kernel Time:     447.00 ms
+  +-- Memory Time:     0.71 ms
+
+Compute Performance:
+--------------------------------------------
+GFLOP/s:             35.79
+Memory Bandwidth:     0.02 GB/s
+============================================
+
+=== CPU vs GPU Comparison ===
+--------------------------------------------
+CPU Time:             95280.00 ms
+GPU Time:             447.71 ms
+Speedup:              212.81x
+
+Compute Performance:
+CPU GFLOP/s:          0.17
+GPU GFLOP/s:          35.79
+Performance Ratio:     213.15x
+============================================
+```
