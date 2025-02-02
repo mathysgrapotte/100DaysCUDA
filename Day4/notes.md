@@ -10,25 +10,21 @@ In the non‐weighted branch—i.e. when the parameter `a` is NA and `weighted` 
    - It extracts the full vector of values for each feature (i.e. for column i and column j).
    - It computes the element‑wise log‑ratio:
      
-     \[
-     v = \log\left(\frac{Y_{\ast, i}}{Y_{\ast, j}}\right)
-     \]
+     $v = \log\left(\frac{Y_{\ast, i}}{Y_{\ast, j}}\right)$
      
-     where \( Y_{\ast, i} \) denotes all rows (samples) in column i.
+     where $Y_{\ast, i}$ denotes all rows (samples) in column i.
      
-2. **Computes the sample variance of the log‑ratio vector \(v\):**  
+2. **Computes the sample variance of the log‑ratio vector $v$:**  
    This is done using the standard variance formula:
    
-   \[
-   \text{var}(v) = \frac{1}{N - 1} \sum_{k=1}^{N} \left( v_k - \overline{v} \right)^2,
-   \]
+   $\text{var}(v) = \frac{1}{N - 1} \sum_{k=1}^{N} \left( v_k - \overline{v} \right)^2,$
    
-   where \( \overline{v} \) is the mean of the log‑ratio values, and \(N\) is the number of samples (the number of rows in Y).
+   where $\overline{v}$ is the mean of the log‑ratio values, and $N$ is the number of samples (the number of rows in Y).
 
 3. **Stores the result:**  
-   For each unique pair (i, j), the computed variance is stored in a one‑dimensional output vector. (Since there are \(\frac{p(p-1)}{2}\) pairs for p features, the result is a half‑matrix flattened into a vector.)
+   For each unique pair (i, j), the computed variance is stored in a one‑dimensional output vector. (Since there are $\frac{p(p-1)}{2}$ pairs for p features, the result is a half‑matrix flattened into a vector.)
 
-In the context of the paper, this variance of the log-ratios (often termed “log-ratio variance” or lrv) is used as a normalization‐free measure to assess differential proportionality between gene expression values.
+In the context of the paper, this variance of the log-ratios (often termed "log-ratio variance" or lrv) is used as a normalization‐free measure to assess differential proportionality between gene expression values.
 
 ---
 
@@ -38,11 +34,11 @@ Because the variance computations for each pair are independent, the task is hig
 
 ### 1. Data Organization and Transfer
 - **Host Data:**  
-  Your input matrix **Y** (dimensions \(N \times p\)) resides in host (CPU) memory.
+  Your input matrix **Y** (dimensions $N \times p$) resides in host (CPU) memory.
 - **Device Memory:**  
   Allocate device (GPU) memory for:
   - The matrix **Y** (transfer it from host to device).
-  - An output array (of length \(\frac{p(p-1)}{2}\)) to hold the computed variances.
+  - An output array (of length $\frac{p(p-1)}{2}$) to hold the computed variances.
 
 ### 2. Parallelization Strategy
 - **Mapping Pairs to Threads/Blocks:**  
@@ -51,26 +47,22 @@ Because the variance computations for each pair are independent, the task is hig
   - **2D Grid Approach:**  
     Launch a 2D grid of threads (with dimensions p × p) and let each thread check if its indices satisfy i > j.  
   - **One Block per Pair:**  
-    Enumerate the \(\frac{p(p-1)}{2}\) pairs and assign one thread block to each pair.  
+    Enumerate the $\frac{p(p-1)}{2}$ pairs and assign one thread block to each pair.  
     Within each block, use multiple threads to perform a parallel reduction over the N samples.
     
-  The second approach is usually preferred because each pair’s variance calculation involves a reduction (summing values and summing squares).
+  The second approach is usually preferred because each pair's variance calculation involves a reduction (summing values and summing squares).
 
 ### 3. Kernel Design
 For each pair (i, j), you need to:
 - **Compute Log-Ratios:**  
-  For each sample \( k \) (from 0 to \( N-1 \)), compute  
-  \[
-  v_k = \log\left(\frac{Y[k][i]}{Y[k][j]}\right).
-  \]
+  For each sample $k$ (from 0 to $N-1$), compute  
+  $v_k = \log\left(\frac{Y[k][i]}{Y[k][j]}\right).$
 - **Reduction to Compute the Mean:**  
-  Use parallel reduction (e.g., using shared memory) within the thread block to compute the sum of \(v_k\) and then the mean \( \overline{v} \).
+  Use parallel reduction (e.g., using shared memory) within the thread block to compute the sum of $v_k$ and then the mean $\overline{v}$.
 - **Reduction to Compute the Variance:**  
   In a second reduction pass (or combined with the first), compute the sum of squared differences:  
-  \[
-  \sum_{k=1}^{N} (v_k - \overline{v})^2.
-  \]
-  Then divide by \(N-1\) to obtain the variance.
+  $\sum_{k=1}^{N} (v_k - \overline{v})^2.$
+  Then divide by $N-1$ to obtain the variance.
 - **Store the Result:**  
   Write the computed variance for pair (i, j) to the appropriate location in the output array.
 
@@ -105,7 +97,7 @@ _Note:_ You may use CUDA libraries such as Thrust or CUB to simplify parallel re
 - **Description:**  
   In the unweighted, non-transformed mode, the program computes the variance of the log ratios of every pair of columns (features) in the input matrix Y.
 - **CUDA Implementation Plan:**  
-  Transfer Y to the GPU, then for each pair (i, j) use a CUDA kernel (with block-level parallel reductions) to compute the variance of \(\log(Y_{\ast, i} / Y_{\ast, j})\) across all samples, and finally copy the result back to the host.
+  Transfer Y to the GPU, then for each pair (i, j) use a CUDA kernel (with block-level parallel reductions) to compute the variance of $\log(Y_{\ast, i} / Y_{\ast, j})$ across all samples, and finally copy the result back to the host.
 
 This high-level plan leverages the inherent parallelism of the problem (each pair can be computed independently) and uses efficient reduction techniques on the GPU to handle the per-pair computations.
 
