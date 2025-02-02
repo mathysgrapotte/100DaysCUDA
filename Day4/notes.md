@@ -141,13 +141,15 @@ if (threadIdx.x < 1) {  // stride = 1
 When two elements are not in the same warp, we can load them into shared memory to decrease the number of global memory access.
 When we then transfer the data, each thread will load a datapoint and move it to shared memory. 
 
-# TODO: understand what are the limits of shared memory, and how to use it efficiently.
-
 ```cpp
 __shared__ float shared_mem[32];
 
 shared_mem[threadIdx.x] = Y[threadIdx.x];
 ```	
+
+TODO: understand what are the limits of shared memory, and how to use it efficiently.
+
+
 
 ## misc : 
 
