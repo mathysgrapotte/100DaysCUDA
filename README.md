@@ -13,8 +13,8 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 | Vector Addition in CUDA | 🤗 |
 | Matrix Addition in CUDA | 🤗 |
 | MatMul Level 0: Naive Implementation | 🤗 |
+| MatMul Level 2: Shared Memory Tiling | 🤗 |
 | MatMul Level 1: Memory Coalescing | 🫠 |
-| MatMul Level 2: Shared Memory Tiling | 🫠 |
 | MatMul Level 3: Loop Unrolling | 🫠 |
 | MatMul Level 4: Double Buffering | 🫠 |
 | MatMul Level 5: Advanced Block Tiling | 🫠 |
@@ -57,7 +57,7 @@ See Day4 for the implementation and notes for the algorithm.
 | Day 2    | Implemented matrix addition in CUDA. Deep dive into memory coalescing, thread synchronization, and grid organization. Learned about memory layout, coalesced access patterns, 2D grid/block organization, CUDA synchronization, and thread execution model. Created a matrix addition program handling 1024x1024 matrices using 16x16 thread blocks. |
 | Day 3    | Started matrix multiplication optimization journey with Level 0 (naive implementation). Created comprehensive performance benchmarking infrastructure for measuring kernel execution, memory transfers, GFLOPS, bandwidth and CPU vs GPU comparisons. Created detailed notes on CUDA block size selection, covering hardware constraints, matrix size considerations, memory access patterns and optimization strategies. Implemented naive matrix multiplication with 16x16 thread blocks for 1024x1024 matrices. |
 | Day 4    | Implemented Log Variance Ratio in CUDA. Learned about shared memory and about sum reduction. Yields 200x speedup over Rcpp log ratio function !! |
-| Day 5    |  |
+| Day 5    | Implemented MatMul tiling, took a long time to get right, especially vey messy in my dealing with the indices at first, but I feel like I understand the idea now. Benchmarked against naive implementation. |
 | Day 6    |  |
 | Day 7    |  |
 | Day 8    |  |
