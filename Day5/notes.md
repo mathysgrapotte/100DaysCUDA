@@ -81,3 +81,41 @@ Thread Block Layout:
 ```
 
 Each thread in this block loads a specific element from the global matrix into the shared memory tile (after proper synchronization).
+
+## Results 
+
+```
+Device: Tesla T4
+Compute Capability: 7.5
+Max threads per block: 1024
+Max threads in X-dimension: 1024
+
+=== CPU Implementation ===
+Time: 7241.844 ms
+
+=== Naive Implementation Performance ===
+Kernel Time: 9.253 ms
+Memory Time: 3.072 ms
+Total Time: 12.325 ms
+Performance: 232.09 GFLOPs
+Memory Bandwidth: 1.02 GB/s
+Max difference: 0.000092 at index 166082
+Results: PASSED
+
+=== Tiled Implementation Performance ===
+Kernel Time: 6.087 ms
+Memory Time: 3.076 ms
+Total Time: 9.163 ms
+Performance: 352.80 GFLOPs
+Memory Bandwidth: 1.37 GB/s
+Max difference: 0.000092 at index 166082
+Results: PASSED
+
+=== Performance Comparison Report ===
+============================================
+Implementation      Time(ms)   GFLOP/s   Speedup
+--------------------------------------------
+Naive (Baseline)      9.25    232.09     1.00x
+Tiling                6.09    352.80     1.52x
+============================================
+```
