@@ -15,67 +15,28 @@ int num_blocks = num_pairs;
 #define BLOCK_SIZE 128
 
 __global__ void computeLogRatioVariance(float *d_Y, float *d_variances, int nb_samples, int nb_genes) {
-    // Compute log ratio for current pair
-    int pair_index = blockIdx.x;
-    int i = (int)((-1 + sqrt(1 + 8.0 * pair_index)) / 2.0) + 1;
-    int j = pair_index - (i * (i - 1)) / 2;
+    // Use a 2D grid: thread indices map to gene indices.
+    int i = blockIdx.x * blockDim.x + threadIdx.x; // gene i
+    int j = blockIdx.y * blockDim.y + threadIdx.y; // gene j
 
-    // Initialize shared memory for mean and variance
-    __shared__ float mean[BLOCK_SIZE];
-    __shared__ float variance[BLOCK_SIZE];
-    __shared__ float col_i[BLOCK_SIZE];
-    __shared__ float col_j[BLOCK_SIZE];
-    __shared__ float log_ratios[BLOCK_SIZE];  // New array to store original values
-
-    // Initialize shared memory for mean and variance
-    mean[threadIdx.x] = 0.0f;
-    variance[threadIdx.x] = 0.0f;
-
-    if (threadIdx.x < nb_samples) {
-        col_i[threadIdx.x] = d_Y[threadIdx.x + i * nb_samples];
-        col_j[threadIdx.x] = d_Y[threadIdx.x + j * nb_samples];
-    } // load data into shared memory (each thread loads one sample at a time, so we need to sync)
-
-    __syncthreads();
-
-    // First compute log ratios
-    if (threadIdx.x < nb_samples) {
-        float ratio = col_i[threadIdx.x] / col_j[threadIdx.x];
-        log_ratios[threadIdx.x] = log(ratio);  // Store original values
-        mean[threadIdx.x] = log_ratios[threadIdx.x];  // Copy for reduction
-    }
-    __syncthreads();
-
-    // Reduce to get sum for mean
-    for (int stride = BLOCK_SIZE/2; stride > 0; stride >>= 1) {
-        __syncthreads();
-        if (threadIdx.x < stride) {
-            mean[threadIdx.x] += mean[threadIdx.x + stride];
+    // We compute only for valid pairs: we want j < i.
+    if (i < nb_genes && j < i) {
+        float sum = 0.0f;
+        float sumsq = 0.0f;
+        // Loop over the sample dimension (nb_samples is small)
+        for (int k = 0; k < nb_samples; k++) {
+            // Access the matrix as: row k, column gene (i or j)
+            // Assuming d_Y is stored in column-major
+            float ratio = d_Y[k + i * nb_samples] / d_Y[k + j * nb_samples];
+            float log_val = log(ratio);
+            sum += log_val;
+            sumsq += log_val * log_val;
         }
-    }
-    __syncthreads();
-
-    // Compute mean
-    float log_ratio_mean = mean[0] / nb_samples;
-
-    // Compute squared differences
-    if (threadIdx.x < nb_samples) {
-        float diff = log_ratios[threadIdx.x] - log_ratio_mean;  // Use original values
-        variance[threadIdx.x] = diff * diff;
-    }
-    __syncthreads();
-
-    // Reduce again to get sum of squared differences
-    for (int stride = BLOCK_SIZE/2; stride > 0; stride >>= 1) { // >>= 1 is bitwise right shift by 1 (divide by 2)
-        __syncthreads();
-        if (threadIdx.x < stride) {
-            variance[threadIdx.x] += variance[threadIdx.x + stride];
-        }
-    }
-
-    // Store final result with (N-1) correction
-    if (threadIdx.x == 0) {
-        d_variances[pair_index] = variance[0] / (nb_samples - 1);
+        float mean = sum / nb_samples;
+        float variance = (sumsq - nb_samples * mean * mean) / (nb_samples - 1);
+        // Compute 1D index for (i,j) with j < i:
+        int pair_index = (i * (i - 1)) / 2 + j;
+        d_variances[pair_index] = variance;
     }
 }
 
@@ -168,7 +129,9 @@ PerformanceMetrics benchmarkLogVarianceRatio() {
     cudaEventElapsedTime(&metrics.memory_time, start, stop);
     
     cudaEventRecord(start);
-    computeLogRatioVariance<<<num_blocks, threads_per_block>>>(d_Y, d_variances_gpu, nb_samples, nb_genes);
+    dim3 blockDim(16, 16); // 16*16 = 256
+    dim3 gridDim((nb_genes + blockDim.x - 1) / blockDim.x, (nb_genes + blockDim.y - 1) / blockDim.y);
+    computeLogRatioVariance<<<gridDim, blockDim>>>(d_Y, d_variances_gpu, nb_samples, nb_genes);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&metrics.kernel_time, start, stop);
