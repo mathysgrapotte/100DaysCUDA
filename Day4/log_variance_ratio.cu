@@ -14,31 +14,48 @@ int num_blocks = num_pairs;
 
 #define BLOCK_SIZE 128
 
-__global__ void computeLogRatioVariance(float *d_Y, float *d_variances, int nb_samples, int nb_genes) {
-    // Use a 2D grid: thread indices map to gene indices.
+__global__
+void computeLogRatioVariance(float *d_Y, float *d_variances, int nb_samples, int nb_genes) {
     int i = blockIdx.x * blockDim.x + threadIdx.x; // gene i
     int j = blockIdx.y * blockDim.y + threadIdx.y; // gene j
 
-    // We compute only for valid pairs: we want j < i.
     if (i < nb_genes && j < i) {
         float sum = 0.0f;
         float sumsq = 0.0f;
-        // Loop over the sample dimension (nb_samples is small)
-        for (int k = 0; k < nb_samples; k++) {
-            // Access the matrix as: row k, column gene (i or j)
-            // Assuming d_Y is stored in column-major
-            float ratio = d_Y[k + i * nb_samples] / d_Y[k + j * nb_samples];
-            float log_val = log(ratio);
+        int k = 0;
+
+        // Process 4 samples at a time using vector loads
+        for (; k <= nb_samples - 4; k += 4) {
+            // Load 4 elements for gene i and j using float4
+            float4 y_i = *reinterpret_cast<float4*>(&d_Y[k + i * nb_samples]);
+            float4 y_j = *reinterpret_cast<float4*>(&d_Y[k + j * nb_samples]);
+            // Directly access the components (x, y, z, w)
+            float ratio[4] = {y_i.x / y_j.x,y_i.y / y_j.y,y_i.z / y_j.z, y_i.w / y_j.w};
+            for (int m = 0; m < 4; ++m) {
+                float log_val = logf(ratio[m]);
+                sum += log_val;
+                sumsq += log_val * log_val;
+            }
+        }
+
+        // Process remaining samples (0-3)
+        for (; k < nb_samples; ++k) {
+            float yi = d_Y[k + i * nb_samples];
+            float yj = d_Y[k + j * nb_samples];
+            float ratio = yi / yj;
+            float log_val = logf(ratio);
             sum += log_val;
             sumsq += log_val * log_val;
         }
+
+        // Compute variance
         float mean = sum / nb_samples;
         float variance = (sumsq - nb_samples * mean * mean) / (nb_samples - 1);
-        // Compute 1D index for (i,j) with j < i:
         int pair_index = (i * (i - 1)) / 2 + j;
         d_variances[pair_index] = variance;
     }
 }
+
 
 // CPU implementation for log variance ratio benchmark
 float* compute_log_variance_ratio_cpu(const float* Y, int nb_samples, int nb_genes) {
@@ -129,7 +146,7 @@ PerformanceMetrics benchmarkLogVarianceRatio() {
     cudaEventElapsedTime(&metrics.memory_time, start, stop);
     
     cudaEventRecord(start);
-    dim3 blockDim(16, 16); // 16*16 = 256
+    dim3 blockDim(8, 8);
     dim3 gridDim((nb_genes + blockDim.x - 1) / blockDim.x, (nb_genes + blockDim.y - 1) / blockDim.y);
     computeLogRatioVariance<<<gridDim, blockDim>>>(d_Y, d_variances_gpu, nb_samples, nb_genes);
     cudaEventRecord(stop);
