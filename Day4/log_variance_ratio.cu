@@ -155,7 +155,7 @@ PerformanceMetrics benchmarkLogVarianceRatio() {
     cudaEventElapsedTime(&metrics.memory_time, start, stop);
     
     cudaEventRecord(start);
-    dim3 blockDim(8, 8);
+    dim3 blockDim(16, 16);
     dim3 gridDim((nb_genes + blockDim.x - 1) / blockDim.x, (nb_genes + blockDim.y - 1) / blockDim.y);
     computeLogRatioVariance<<<gridDim, blockDim>>>(d_Y, d_variances_gpu, nb_samples, nb_genes);
     cudaEventRecord(stop);
