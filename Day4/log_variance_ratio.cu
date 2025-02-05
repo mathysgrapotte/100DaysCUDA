@@ -16,46 +16,55 @@ int num_blocks = num_pairs;
 
 __global__
 void computeLogRatioVariance(float *d_Y, float *d_variances, int nb_samples, int nb_genes) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x; // gene i
-    int j = blockIdx.y * blockDim.y + threadIdx.y; // gene j
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (i < nb_genes && j < i) {
-        float sum = 0.0f;
-        float sumsq = 0.0f;
+        // Pack accumulators together to encourage fusion
+        float2 accum = make_float2(0.0f, 0.0f);
         int k = 0;
 
-        // Process 4 samples at a time using vector loads
+        // Process 4 samples at a time with vector loads
+        #pragma unroll
         for (; k <= nb_samples - 4; k += 4) {
-            // Load 4 elements for gene i and j using float4
             float4 y_i = *reinterpret_cast<float4*>(&d_Y[k + i * nb_samples]);
             float4 y_j = *reinterpret_cast<float4*>(&d_Y[k + j * nb_samples]);
-            // Directly access the components (x, y, z, w)
-            float ratio[4] = {y_i.x / y_j.x,y_i.y / y_j.y,y_i.z / y_j.z, y_i.w / y_j.w};
+
+            // Use intrinsics that compiler can fuse
+            #pragma unroll
             for (int m = 0; m < 4; ++m) {
-                float log_val = logf(ratio[m]);
-                sum += log_val;
-                sumsq += log_val * log_val;
+                // __fdividef has lower precision but can be fused
+                float ratio = __fdividef((&y_i.x)[m], (&y_j.x)[m]);
+                // __logf can be fused with multiply/add operations
+                float log_val = __logf(ratio);
+
+                // Accumulate sum and square together
+                accum.x = __fmaf_rn(1.0f, log_val, accum.x); // sum += log_val
+                accum.y = __fmaf_rn(log_val, log_val, accum.y); // sumsq += log_val * log_val
             }
         }
 
-        // Process remaining samples (0-3)
+        // Handle remaining elements with same fused operations
         for (; k < nb_samples; ++k) {
             float yi = d_Y[k + i * nb_samples];
             float yj = d_Y[k + j * nb_samples];
-            float ratio = yi / yj;
-            float log_val = logf(ratio);
-            sum += log_val;
-            sumsq += log_val * log_val;
+
+            float ratio = __fdividef(yi, yj);
+            float log_val = __logf(ratio);
+
+            accum.x = __fmaf_rn(1.0f, log_val, accum.x);
+            accum.y = __fmaf_rn(log_val, log_val, accum.y);
         }
 
-        // Compute variance
-        float mean = sum / nb_samples;
-        float variance = (sumsq - nb_samples * mean * mean) / (nb_samples - 1);
+        // Fused mean and variance computation
+        float inv_n = __frcp_rn(static_cast<float>(nb_samples));
+        float mean = accum.x * inv_n;
+        float variance = (accum.y - __fmul_rn(nb_samples, __fmul_rn(mean, mean))) * __frcp_rn(static_cast<float>(nb_samples - 1));
+
         int pair_index = (i * (i - 1)) / 2 + j;
         d_variances[pair_index] = variance;
     }
 }
-
 
 // CPU implementation for log variance ratio benchmark
 float* compute_log_variance_ratio_cpu(const float* Y, int nb_samples, int nb_genes) {
