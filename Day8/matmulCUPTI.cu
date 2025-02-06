@@ -1,7 +1,11 @@
 #include <stdio.h>
+#include <cuda.h>
 #include <cuda_runtime.h>
 #include <cupti.h>
-#include <vector>
+#include <nvperf_host.h>
+#include <nvperf_cuda_host.h>
+#include <nvperf_target.h>
+#include <string.h>
 
 // Matrix dimensions 
 const int M = 4092;
@@ -16,6 +20,26 @@ const int N = 4092;
         exit(EXIT_FAILURE); \
     } \
 }
+
+// Add error checking macro for CUPTI
+#define CHECK_CUPTI(err) \
+    do { \
+        CUptiResult _err = (err); \
+        if (_err != CUPTI_SUCCESS) { \
+            const char *errstr; \
+            cuptiGetResultString(_err, &errstr); \
+            fprintf(stderr, "CUPTI error at %s:%d: %s\n", __FILE__, __LINE__, errstr); \
+            exit(1); \
+        } \
+    } while(0)
+
+// Update to use performance API metrics
+const char* METRIC_NAMES[] = {
+    "sm__cycles_active.avg.pct_of_peak_sustained_elapsed",     // SM utilization
+    "dram__bytes.sum.per_second",                             // Memory bandwidth
+    "sm__sass_thread_inst_executed_op_dfma_pred_on.sum"       // FMA instructions
+};
+const int NUM_METRICS = sizeof(METRIC_NAMES)/sizeof(METRIC_NAMES[0]);
 
 dim3 grid((N + 32 - 1) / 32, (M + 32 - 1) / 32, 1);
 dim3 block(32, 32, 1);
@@ -64,13 +88,24 @@ void initializeMatrices(float* A, float* B, int M, int K, int N) {
 
 // Performance metrics structure
 struct PerformanceMetrics {
-    float kernel_time;      // milliseconds
-    float gflops;           // Floating point operations per second
-    float bandwidth;        // memory bandwidth in GB/s
-    float load_efficiency;  // Global memory load efficiency (%)
-    float store_efficiency; // Global memory store efficiency (%)
-    bool correct;           // Whether results match baseline
+    float kernel_time;
+    float memory_time;
+    float total_time;
+    float gflops;
+    float sm_efficiency;
+    float dram_throughput;
+    float tensor_core_util;
+    bool correct;
 };
+
+// CUPTI initialization function
+void initCupti() {
+    CUpti_SubscriberHandle subscriber;
+    CHECK_CUPTI(cuptiSubscribe(&subscriber, 
+        [](void* userdata, CUpti_CallbackDomain domain, 
+           CUpti_CallbackId cbid, const void* cbdata) {}, 
+        nullptr));
+}
 
 typedef void (*KernelFunction)(int, int, int, const float*, const float*, float*);
 
@@ -78,65 +113,88 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
                             const float* h_A, const float* d_A, 
                             const float* d_B, float* d_C) 
 {
-    PerformanceMetrics metrics;
+    PerformanceMetrics metrics = {0};
     float* h_C = (float*)malloc(M * N * sizeof(float));
 
-    // 1. Simple timing with CUDA events
+    // Initialize NVPW
+    NVPW_InitializeHost_Params initializeHostParams = {NVPW_InitializeHost_Params_STRUCT_SIZE};
+    NVPW_InitializeHost(&initializeHostParams);
+
+    // Get current context and device
+    CUcontext context;
+    CUdevice device;
+    cuCtxGetCurrent(&context);
+    cuCtxGetDevice(&device);
+
+    // Create CUDA events for timing
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
-    // 2. Simplified CUPTI metric setup
-    CUpti_MetricID metric;
-    CUpti_EventGroupSets* eventGroupSets = nullptr;
-    
-    // Get efficiency metric (works for CUDA 12.4+)
-    cuptiMetricGetIdFromName(0, "smsp__sass_average_data_bytes_per_sector_mem_global_op_st.lsu", &metric);
-    
-    // 3. Create event groups for this metric
-    cuptiMetricCreateEventGroupSets(0, sizeof(metric), &metric, &eventGroupSets);
-
-    // 4. Enable event collection
-    for(uint32_t i=0; i<eventGroupSets->numSets; i++) {
-        cuptiEventGroupSetEnable(&eventGroupSets->sets[i]);
-    }
-
-
-    // 5. Run kernel with timing
+    // Record start time
     cudaEventRecord(start);
+
+    // Run kernel
     kernel<<<grid, block>>>(M, N, K, d_A, d_B, d_C);
-    cudaDeviceSynchronize();
+
+    // Record stop time
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&metrics.kernel_time, start, stop);
 
-    // 6. Put data back to CPU
-    cudaMemcpy(h_C, d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // 7. Check results 
-    metrics.correct = verifyResults(h_C, h_A, M, N);
-    /*
-    // 6. Get metric value (simplified for single metric)
-    CUpti_MetricValue metricValue;
-    size_t valueSize = sizeof(metricValue);
-    cuptiMetricGetValue(0, metric, 0, nullptr, 0, nullptr, valueSize, &metricValue);
-
-    // Convert raw metric to percentage (check metric units in docs)
-    metrics.load_efficiency = static_cast<float>(metricValue.metricValueDouble);
-    */
-    // 7. Calculate basic performance metrics
-    float operations = 2.0f * M * N * K;
+    // Calculate theoretical metrics
+    float operations = 2.0f * M * N * K;  // multiply-add counts as 2 operations
     metrics.gflops = (operations / 1e9) / (metrics.kernel_time / 1000.0f);
 
-    // print metrics
+    // Calculate memory throughput
+    size_t bytes_read = M * K * sizeof(float) + K * N * sizeof(float);  // Reading A and B
+    size_t bytes_written = M * N * sizeof(float);  // Writing to C
+    float total_gb = (bytes_read + bytes_written) / (float)(1024*1024*1024);
+    metrics.dram_throughput = total_gb / (metrics.kernel_time / 1000.0f);  // GB/s
+
+    // Estimate SM efficiency based on occupancy
+    int maxThreadsPerMultiProcessor;
+    int maxThreadsPerBlock;
+    cudaDeviceGetAttribute(&maxThreadsPerMultiProcessor, 
+                          cudaDevAttrMaxThreadsPerMultiProcessor, 
+                          0);
+    cudaDeviceGetAttribute(&maxThreadsPerBlock,
+                          cudaDevAttrMaxThreadsPerBlock,
+                          0);
+    
+    int numBlocks = grid.x * grid.y;
+    int threadsPerBlock = block.x * block.y;
+    int numSMs;
+    cudaDeviceGetAttribute(&numSMs, cudaDevAttrMultiProcessorCount, 0);
+    
+    // Calculate theoretical maximum blocks per SM
+    int maxBlocksPerSM = maxThreadsPerMultiProcessor / threadsPerBlock;
+    
+    // Calculate blocks per SM (limited by both hardware and grid size)
+    int blocksPerSM = min(numBlocks / numSMs, maxBlocksPerSM);
+    
+    // Calculate active threads per SM
+    int activeThreadsPerSM = blocksPerSM * threadsPerBlock;
+    
+    // Calculate occupancy as a percentage
+    metrics.sm_efficiency = (float)activeThreadsPerSM / maxThreadsPerMultiProcessor;
+
+    // Clamp efficiency to 100%
+    metrics.sm_efficiency = min(metrics.sm_efficiency, 1.0f);
+
+    // Copy results back and verify
+    cudaMemcpy(h_C, d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+    metrics.correct = verifyResults(h_C, h_A, M, N);
+
+    // Print metrics
     printf("\n=== Performance Metrics (%s) ===\n", name);
     printf("Kernel Execution Time: %.3f ms\n", metrics.kernel_time);
     printf("GFLOPS: %.2f\n", metrics.gflops);
-    //printf("Load Efficiency: %.2f%%\n", metrics.load_efficiency * 100.0f);
-    //printf("Results match: %.2f\n", metrics.correct);
-    
-    // 9. Cleanup
-    //cuptiEventGroupSetsDestroy(eventGroupSets);
+    printf("SM Efficiency (Occupancy): %.2f%%\n", metrics.sm_efficiency * 100.0f);
+    printf("Memory Throughput: %.2f GB/s\n", metrics.dram_throughput);
+    printf("Correctness: %s\n", metrics.correct ? "PASS" : "FAIL");
+
+    // Cleanup
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
     free(h_C);
@@ -144,7 +202,10 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
     return metrics;
 }
 
-int main(){
+int main() {
+    // Initialize CUDA driver API
+    cuInit(0);
+    
     // define host pointers 
     float *h_A, *h_B, *h_C;
     // define device pointers 
