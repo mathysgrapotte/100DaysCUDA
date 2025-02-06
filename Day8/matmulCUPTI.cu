@@ -88,13 +88,14 @@ void initializeMatrices(float* A, float* B, int M, int K, int N) {
 
 // Performance metrics structure
 struct PerformanceMetrics {
-    float kernel_time;
-    float memory_time;
-    float total_time;
-    float gflops;
-    float sm_efficiency;
-    float dram_throughput;
-    float tensor_core_util;
+    float kernel_time;      // ms
+    float gflops;          // GFLOPS achieved
+    float sm_efficiency;    // Occupancy (0-1)
+    float dram_throughput; // GB/s
+    float arithmetic_intensity; // FLOPS/byte
+    float bandwidth_utilization; // Percentage of theoretical
+    float compute_utilization;   // Percentage of theoretical
+    float memory_bound_ratio;    // >1 means memory bound, <1 means compute bound
     bool correct;
 };
 
@@ -109,6 +110,46 @@ void initCupti() {
 
 typedef void (*KernelFunction)(int, int, int, const float*, const float*, float*);
 
+float calculateOccupancy(int blockSize) {
+    int device;
+    cudaGetDevice(&device);
+    
+    // Get device properties
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device);
+    
+    // Calculate theoretical and actual occupancy
+    int maxActiveBlocks;
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+        &maxActiveBlocks,
+        matmul_naive,
+        blockSize,
+        0  // shared memory size
+    );
+    
+    // Print detailed occupancy information
+    printf("\n=== Occupancy Details ===\n");
+    printf("Threads per block: %d\n", blockSize);
+    printf("Max blocks per SM: %d\n", maxActiveBlocks);
+    printf("Number of SMs: %d\n", prop.multiProcessorCount);
+    printf("Max threads per SM: %d\n", prop.maxThreadsPerMultiProcessor);
+    printf("Theoretical max warps per SM: %d\n", prop.maxThreadsPerMultiProcessor / 32);
+    printf("Active warps per SM: %d\n", (maxActiveBlocks * blockSize) / 32);
+    
+    // Calculate actual occupancy
+    float activeWarps = (float)(maxActiveBlocks * blockSize) / 32.0f;
+    float maxWarps = (float)prop.maxThreadsPerMultiProcessor / 32.0f;
+    float occupancy = activeWarps / maxWarps;
+    
+    // Print grid information
+    printf("\n=== Grid Details ===\n");
+    printf("Grid dimensions: %d x %d\n", (N + 32 - 1) / 32, (M + 32 - 1) / 32);
+    printf("Total blocks: %d\n", ((N + 32 - 1) / 32) * ((M + 32 - 1) / 32));
+    printf("Blocks per SM: %.2f\n", (float)(((N + 32 - 1) / 32) * ((M + 32 - 1) / 32)) / prop.multiProcessorCount);
+    
+    return occupancy;
+}
+
 PerformanceMetrics runKernel(KernelFunction kernel, const char* name, 
                             const float* h_A, const float* d_A, 
                             const float* d_B, float* d_C) 
@@ -116,15 +157,17 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
     PerformanceMetrics metrics = {0};
     float* h_C = (float*)malloc(M * N * sizeof(float));
 
-    // Initialize NVPW
-    NVPW_InitializeHost_Params initializeHostParams = {NVPW_InitializeHost_Params_STRUCT_SIZE};
-    NVPW_InitializeHost(&initializeHostParams);
+    // Get device properties
+    cudaDeviceProp prop;
+    int device;
+    cudaGetDevice(&device);
+    cudaGetDeviceProperties(&prop, device);
 
     // Get current context and device
     CUcontext context;
-    CUdevice device;
+    CUdevice cuDevice;
     cuCtxGetCurrent(&context);
-    cuCtxGetDevice(&device);
+    cuCtxGetDevice(&cuDevice);
 
     // Create CUDA events for timing
     cudaEvent_t start, stop;
@@ -142,57 +185,68 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&metrics.kernel_time, start, stop);
 
-    // Calculate theoretical metrics
+    // Calculate basic metrics
     float operations = 2.0f * M * N * K;  // multiply-add counts as 2 operations
-    metrics.gflops = (operations / 1e9) / (metrics.kernel_time / 1000.0f);
+    size_t bytes_read = M * K * sizeof(float) + K * N * sizeof(float);
+    size_t bytes_written = M * N * sizeof(float);
+    float total_bytes = bytes_read + bytes_written;
+    float seconds = metrics.kernel_time / 1000.0f;
+
+    // Calculate GFLOPS
+    metrics.gflops = (operations / 1e9) / seconds;
 
     // Calculate memory throughput
-    size_t bytes_read = M * K * sizeof(float) + K * N * sizeof(float);  // Reading A and B
-    size_t bytes_written = M * N * sizeof(float);  // Writing to C
-    float total_gb = (bytes_read + bytes_written) / (float)(1024*1024*1024);
-    metrics.dram_throughput = total_gb / (metrics.kernel_time / 1000.0f);  // GB/s
+    metrics.dram_throughput = total_bytes / (seconds * 1e9);  // GB/s
 
-    // Estimate SM efficiency based on occupancy
-    int maxThreadsPerMultiProcessor;
-    int maxThreadsPerBlock;
-    cudaDeviceGetAttribute(&maxThreadsPerMultiProcessor, 
-                          cudaDevAttrMaxThreadsPerMultiProcessor, 
-                          0);
-    cudaDeviceGetAttribute(&maxThreadsPerBlock,
-                          cudaDevAttrMaxThreadsPerBlock,
-                          0);
-    
-    int numBlocks = grid.x * grid.y;
-    int threadsPerBlock = block.x * block.y;
-    int numSMs;
-    cudaDeviceGetAttribute(&numSMs, cudaDevAttrMultiProcessorCount, 0);
-    
-    // Calculate theoretical maximum blocks per SM
-    int maxBlocksPerSM = maxThreadsPerMultiProcessor / threadsPerBlock;
-    
-    // Calculate blocks per SM (limited by both hardware and grid size)
-    int blocksPerSM = min(numBlocks / numSMs, maxBlocksPerSM);
-    
-    // Calculate active threads per SM
-    int activeThreadsPerSM = blocksPerSM * threadsPerBlock;
-    
-    // Calculate occupancy as a percentage
-    metrics.sm_efficiency = (float)activeThreadsPerSM / maxThreadsPerMultiProcessor;
+    // Calculate arithmetic intensity (FLOPS/byte)
+    metrics.arithmetic_intensity = operations / total_bytes;
 
-    // Clamp efficiency to 100%
-    metrics.sm_efficiency = min(metrics.sm_efficiency, 1.0f);
+    // Calculate theoretical peak performance
+    float clock_rate = prop.clockRate * 1e3;  // Convert kHz to Hz
+    float theoretical_gflops = (prop.multiProcessorCount * prop.warpSize * 2 * clock_rate) / 1e9;
+    
+    // Calculate theoretical memory bandwidth (GB/s)
+    // Memory clock is in kHz, bus width in bits
+    float theoretical_bandwidth = (float)(prop.memoryClockRate * 1000.0) *  // Convert to Hz
+                                (prop.memoryBusWidth / 8.0) *               // Convert bits to bytes
+                                2.0 /                                       // DDR factor
+                                1.0e9;                                     // Convert to GB/s
+
+    // Calculate utilization percentages
+    metrics.bandwidth_utilization = (metrics.dram_throughput / theoretical_bandwidth) * 100.0f;
+    metrics.compute_utilization = (metrics.gflops / theoretical_gflops) * 100.0f;
+
+    // Calculate if kernel is memory or compute bound
+    float time_compute = operations / (theoretical_gflops * 1e9);
+    float time_memory = total_bytes / (theoretical_bandwidth * 1e9);
+    metrics.memory_bound_ratio = time_memory / time_compute;
+
+    // Calculate occupancy
+    metrics.sm_efficiency = calculateOccupancy(block.x * block.y);
 
     // Copy results back and verify
     cudaMemcpy(h_C, d_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
     metrics.correct = verifyResults(h_C, h_A, M, N);
 
-    // Print metrics
-    printf("\n=== Performance Metrics (%s) ===\n", name);
-    printf("Kernel Execution Time: %.3f ms\n", metrics.kernel_time);
-    printf("GFLOPS: %.2f\n", metrics.gflops);
-    printf("SM Efficiency (Occupancy): %.2f%%\n", metrics.sm_efficiency * 100.0f);
-    printf("Memory Throughput: %.2f GB/s\n", metrics.dram_throughput);
-    printf("Correctness: %s\n", metrics.correct ? "PASS" : "FAIL");
+    // Print detailed performance analysis
+    printf("\n=== Performance Analysis (%s) ===\n", name);
+    printf("Basic Metrics:\n");
+    printf("  Kernel Time: %.3f ms\n", metrics.kernel_time);
+    printf("  GFLOPS: %.2f\n", metrics.gflops);
+    printf("  Memory Throughput: %.2f GB/s\n", metrics.dram_throughput);
+    printf("  SM Occupancy: %.2f%%\n", metrics.sm_efficiency * 100.0f);
+    
+    printf("\nAdvanced Metrics:\n");
+    printf("  Arithmetic Intensity: %.2f FLOPS/byte\n", metrics.arithmetic_intensity);
+    printf("  Theoretical Peak: %.2f GFLOPS\n", theoretical_gflops);
+    printf("  Theoretical Bandwidth: %.2f GB/s\n", theoretical_bandwidth);
+    printf("  Compute Utilization: %.2f%%\n", metrics.compute_utilization);
+    printf("  Memory Bandwidth Utilization: %.2f%%\n", metrics.bandwidth_utilization);
+    printf("  Memory/Compute Bound Ratio: %.2f %s\n", 
+           metrics.memory_bound_ratio,
+           metrics.memory_bound_ratio > 1.0f ? "(Memory Bound)" : "(Compute Bound)");
+    
+    printf("\nCorrectness: %s\n", metrics.correct ? "PASS" : "FAIL");
 
     // Cleanup
     cudaEventDestroy(start);
