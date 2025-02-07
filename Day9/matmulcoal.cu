@@ -8,12 +8,19 @@
 #include <string.h>
 
 // Matrix dimensions 
-const int M = 4092;
-const int K = 4092;
-const int N = 4092;
+const int M = 4096;
+const int K = 4096;
+const int N = 4096;
 
-dim3 grid((N + 32 - 1) / 32, (M + 32 - 1) / 32, 1);
-dim3 block(32, 32, 1);
+//dim3 grid((N + 32 - 1) / 32, (M + 32 - 1) / 32, 1);
+//dim3 three_dblock(32, 32, 1);
+//dim3 one_dblock(32*32);
+
+// Update block and grid dimensions
+const int BLOCKSIZE = 32;
+dim3 grid((M + BLOCKSIZE - 1) / BLOCKSIZE, (N + BLOCKSIZE - 1) / BLOCKSIZE);
+dim3 one_dblock(BLOCKSIZE * BLOCKSIZE);  // 1024 threads per block
+dim3 three_dblock(BLOCKSIZE, BLOCKSIZE, 1);
 
 #define CHECK_CUDA(call) { \
     cudaError_t err = call; \
@@ -95,6 +102,55 @@ void initCupti() {
         nullptr));
 }
 
+__global__ void matmul_naive(int M, int N, int K, const float *A,
+                            const float *B, float *C) {
+    int col_c = blockDim.x * blockIdx.x + threadIdx.x;
+    int row_c = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (col_c < N && row_c < M){
+        float accu = 0.0f;
+        for (int sum_index = 0; sum_index < K; sum_index+=1){
+            accu += A[row_c * K + sum_index] * B[sum_index * N + col_c];
+        }
+        C[row_c * N + col_c] = accu;
+    }
+}
+
+__global__ void matmul_coal(int M, int N, int K, const float *A, 
+                           const float* B, float *C) {
+    const int BLOCKSIZE = 32;
+    
+    // Change indexing to minimize jumps between iterations
+    const int tid = threadIdx.x;
+    const int row = blockIdx.y * BLOCKSIZE + tid / BLOCKSIZE;
+    const int col = blockIdx.x * BLOCKSIZE + tid % BLOCKSIZE;
+    
+    if (threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0) {
+        printf("Memory access pattern for first warp:\n");
+        for (int k = 0; k < 3; k++) {
+            printf("\nIteration %d:\n", k);
+            for (int t = 0; t < 32; t++) {
+                printf("Thread %d: A[%d], B[%d]\n", 
+                    t, 
+                    (blockIdx.y * BLOCKSIZE + t / BLOCKSIZE) * K + k,
+                    t + k * BLOCKSIZE  // Key change: consecutive access within BLOCKSIZE
+                );
+            }
+        }
+    }
+    
+    if (row < M && col < N) {
+        float sum = 0.0f;
+        
+        // Process elements in BLOCKSIZE chunks to maintain coalescing
+        for (int k = 0; k < K; k++) {
+            sum += A[row * K + k] * B[col + k * N];
+        }
+        
+        C[row * N + col] = sum;
+    }
+}
+
 typedef void (*KernelFunction)(int, int, int, const float*, const float*, float*);
 
 float calculateOccupancy(int blockSize) {
@@ -137,7 +193,19 @@ float calculateOccupancy(int blockSize) {
     return occupancy;
 }
 
-PerformanceMetrics runKernel(KernelFunction kernel, const char* name, 
+
+
+const char* getCacheConfigString(cudaFuncCache cacheConfig) {
+    switch(cacheConfig) {
+        case cudaFuncCachePreferNone: return "No Preference";
+        case cudaFuncCachePreferShared: return "Prefer Shared Memory";
+        case cudaFuncCachePreferL1: return "Prefer L1 Cache";
+        case cudaFuncCachePreferEqual: return "Equal L1 and Shared";
+        default: return "Unknown";
+    }
+}
+
+PerformanceMetrics runKernel(KernelFunction kernel, dim3 grid, dim3 block, const char* name, 
                             const float* h_A, const float* d_A, 
                             const float* d_B, float* d_C) 
 {
@@ -153,6 +221,7 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
     // Get current context and device
     CUcontext context;
     CUdevice cuDevice;
+    cudaFuncCache cacheConfig;
     cuCtxGetCurrent(&context);
     cuCtxGetDevice(&cuDevice);
 
@@ -163,6 +232,7 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
 
     // Record start time
     cudaEventRecord(start);
+    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 
     // Run kernel
     kernel<<<grid, block>>>(M, N, K, d_A, d_B, d_C);
@@ -171,6 +241,7 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&metrics.kernel_time, start, stop);
+    cudaDeviceGetCacheConfig(&cacheConfig);
 
     // Calculate basic metrics
     float operations = 2.0f * M * N * K;  // multiply-add counts as 2 operations
@@ -234,6 +305,7 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
            metrics.memory_bound_ratio > 1.0f ? "(Memory Bound)" : "(Compute Bound)");
     
     printf("\nCorrectness: %s\n", metrics.correct ? "PASS" : "FAIL");
+    printf("\nCache Configuration: %s\n", getCacheConfigString(cacheConfig));
 
     // Cleanup
     cudaEventDestroy(start);
@@ -243,24 +315,7 @@ PerformanceMetrics runKernel(KernelFunction kernel, const char* name,
     return metrics;
 }
 
-__global__ void matmul_naive(int M, int N, int K, const float *A,
-                            const float *B, float *C) {
-    int col_c = blockDim.x * blockIdx.x + threadIdx.x;
-    int row_c = blockDim.y * blockIdx.y + threadIdx.y;
 
-    if (col_c < N && row_c < M){
-        float accu = 0.0f;
-        for (int sum_index = 0; sum_index < K; sum_index+=1){
-            accu += A[row_c * K + sum_index] * B[sum_index * N + col_c];
-        }
-        C[row_c * N + col_c] = accu;
-    }
-}
-
-__global__ void matmul_coal(int M, int N, int K, const float *A, 
-                            const float* B, float *C){
-    
-                            }
 
 int main() {
     // Initialize CUDA driver API
@@ -271,30 +326,34 @@ int main() {
     // define device pointers 
     float *d_A, *d_B, *d_C;
 
-    // initialise matrices sizes 
+    
+    //initialise matrices sizes 
     size_t size_a = M * K * sizeof(float);
     size_t size_b = K * N * sizeof(float);
     size_t size_c = M * N * sizeof(float);
-
+    
     // allocate memory on the CPU
     h_A = (float*)malloc(size_a);
     h_B = (float*)malloc(size_b);
     h_C = (float*)malloc(size_c);
-
+    
     // allocate memory on GPU
     CHECK_CUDA(cudaMalloc((void**)&d_A, size_a));
     CHECK_CUDA(cudaMalloc((void**)&d_B, size_b));
     CHECK_CUDA(cudaMalloc((void**)&d_C, size_c));
 
     initializeMatrices(h_A, h_B, M, K, N);
-    printf("init matrices");
     // send data to GPU 
     CHECK_CUDA(cudaMemcpy(d_A, h_A, size_a, cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(d_B, h_B, size_b, cudaMemcpyHostToDevice));
 
-    printf("Going to run kernel\n");  // Add newline for proper output
-    PerformanceMetrics metrics = runKernel(matmul_naive, "matmul_naive", h_A, d_A, d_B, d_C);
-    printf("Done running kernel\n");
+    printf("Going to run naive kernel\n");  // Add newline for proper output
+    PerformanceMetrics metrics = runKernel(matmul_naive, grid, three_dblock, "matmul_naive", h_A, d_A, d_B, d_C);
+    printf("Done running naive kernel\n");
+    printf("Going to run coalesced kernel\n");
+    metrics = runKernel(matmul_coal, grid, one_dblock, "matmul_coal", h_A, d_A, d_B, d_C);
+    printf("Done running coalesced kernel\n");
+
 
     cudaFree(d_A);
     cudaFree(d_B);
