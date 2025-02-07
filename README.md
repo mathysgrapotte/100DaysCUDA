@@ -59,9 +59,9 @@ See Day4 for the implementation and notes for the algorithm.
 | Day 4    | Implemented Log Variance Ratio in CUDA. Learned about shared memory and about sum reduction. Yields 200x speedup over Rcpp log ratio function !! |
 | Day 5    | Implemented MatMul tiling, took a long time to get right, especially vey messy in my dealing with the indices at first, but I feel like I understand the idea now. Benchmarked against naive implementation. |
 | Day 6    | Implemented Coalesced access through transposing input matrix at GPU load time. |
-| Day 7    |  |
-| Day 8    |  |
-| Day 9    |  |
+| Day 7    | Recap: rewrote naive matmul from scratch (so no llm or internet, just pen&paper). |
+| Day 8    | Recap: implemented profiling toolkit. |
+| Day 9    | Recap: re-implemented matmul memory coalescing and added debugging tools to understand that memory was indeed coalesced. |
 | Day 10   |  |
 | Day 11   |  |
 | Day 12   |  |
