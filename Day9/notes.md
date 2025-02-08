@@ -2,8 +2,9 @@
 
 bus size is 128, 4092 for instance is not divisible by 128.
 
-### size 4092 : 
+#### size 4092 : 
 
+```
 === Performance Analysis (matmul_coal) ===
 Basic Metrics:
   Kernel Time: 208.421 ms
@@ -18,10 +19,12 @@ Advanced Metrics:
   Compute Utilization: 16.15%
   Memory Bandwidth Utilization: 0.30%
   Memory/Compute Bound Ratio: 0.02 (Compute Bound)
+```
 
 but 4096 is ! (shave 7ms of compute)
 
-### size 4096 :
+#### size 4096 :
+```
 
   === Performance Analysis (matmul_coal) ===
 Basic Metrics:
@@ -37,6 +40,8 @@ Advanced Metrics:
   Compute Utilization: 16.75%
   Memory Bandwidth Utilization: 0.31%
   Memory/Compute Bound Ratio: 0.02 (Compute Bound)
+
+```
 
 ## debuging for coalescing access 
 

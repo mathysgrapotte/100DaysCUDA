@@ -62,7 +62,7 @@ See Day4 for the implementation and notes for the algorithm.
 | Day 7    | Recap: rewrote naive matmul from scratch (so no llm or internet, just pen&paper). |
 | Day 8    | Recap: implemented profiling toolkit. |
 | Day 9    | Recap: re-implemented matmul memory coalescing and added debugging tools to understand that memory was indeed coalesced. |
-| Day 10   |  |
+| Day 10   | Recap: re-implemented shared-memory and tiling.|
 | Day 11   |  |
 | Day 12   |  |
 | Day 13   |  |
