@@ -15,7 +15,7 @@ Goal is to reproduce some of the results of [The Principles of Deep Learning The
 | MatMul Level 0: Naive Implementation | 🤗 |
 | MatMul Level 1: Memory Coalescing | 🤗 |
 | MatMul Level 2: Shared Memory Tiling | 🤗 |
-| MatMul Level 3: Loop Unrolling | 🫠 |
+| MatMul Level 3: Loop Unrolling | 🤗  |
 | MatMul Level 4: Double Buffering | 🫠 |
 | MatMul Level 5: Advanced Block Tiling | 🫠 |
 | MatMul Level 6: Warp-level Optimizations | 🫠 |
@@ -63,7 +63,7 @@ See Day4 for the implementation and notes for the algorithm.
 | Day 8    | Recap: implemented profiling toolkit. |
 | Day 9    | Recap: re-implemented matmul memory coalescing and added debugging tools to understand that memory was indeed coalesced. |
 | Day 10   | Recap: re-implemented shared-memory and tiling.|
-| Day 11   |  |
+| Day 11   | Implemented bank conflicts correction but got slower results, so investigating with profiler, see notes for more details. |
 | Day 12   |  |
 | Day 13   |  |
 | Day 14   |  |

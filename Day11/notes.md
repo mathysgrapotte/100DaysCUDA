@@ -99,3 +99,5 @@ To understand, we need to run proviling, I am running this command in colab to d
 | Total SMSP Cycles       | 31334769792 cycle | 40671707040 cycle|
 | Opt. Est. Speedup       | 8.321%            | 7.497%           |
 ```
+
+We will provide an analysis of this in day 12!
