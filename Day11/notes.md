@@ -55,48 +55,47 @@ To understand, we need to run proviling, I am running this command in colab to d
 `!ncu --target-processes all ./matmul`
 
 ```
-|Metric|matmul_coal_optim|matmul_conflicts|
-|---|---|---|
-|DRAM Frequency|5.00 GHz|5.00 GHz|
-|SM Frequency|585.00 MHz|585.00 MHz|
-|Elapsed Cycles|195856422 cycles|254197615 cycles|
-|Memory Throughput|75.41%|89.78%|
-|DRAM Throughput|11.31%|8.72%|
-|Duration|334.80 ms|434.53 ms|
-|L1/TEX Cache Throughput|89.44%|90.03%|
-|L2 Cache Throughput|5.88%|4.53%|
-|SM Active Cycles|195586939.57 cycles|253892040 cycles|
-|Compute (SM) Throughput|75.41%|89.78%|
-|INF Note|Compute and Memory well-balanced; reduce both computation and memory traffic|Utilizes >80% compute/memory – consider workload redistribution|
-|Block Size|1024|1024|
-|Function Cache Conf.|CachePreferNone|CachePreferNone|
-|Grid Size|16384|16384|
-|Registers/Thread|41|36|
-|Shared Mem Conf. Size|32.77 Kbyte|32.77 Kbyte|
-|Driver Shared Memory|0|0|
-|Dynamic Shared Memory|0|0|
-|Static Shared Memory|8.19 Kbyte/block|8.45 Kbyte/block|
-|# SMs|40|40|
-|Threads|16777216|16777216|
-|Green Context|0|0|
-|Waves/SM|409.60|409.60|
-|Block Limit SM|16|16|
-|Block Limit Registers|1|1|
-|Block Limit Shared Mem|4|3|
-|Block Limit Warps|1|1|
-|Theoretical Active Warps/SM|32|32|
-|Theoretical Occupancy|100%|100%|
-|Achieved Occupancy|99.98%|99.99%|
-|Achieved Active Warps/SM|32.00|32.00|
-|Avg DRAM Active Cycles|189220351.50 cycles|189343963.50 cycles|
-|Total DRAM Cycles|13380792320 cycles|17366819840 cycles|
-|Avg L1 Active Cycles|195586939.57 cycles|253892040 cycles|
-|Total L1 Cycles|7833692448 cycles|10167926760 cycles|
-|Avg L2 Active Cycles|76506660.69 cycles|70395522.34 cycles|
-|Total L2 Cycles|9160054208 cycles|11888626848 cycles|
-|Avg SM Active Cycles|195586939.57 cycles|253892040 cycles|
-|Total SM Cycles|7833692448 cycles|10167926760 cycles|
-|Avg SMSP Active Cycles|195587690.47 cycles|253876400.93 cycles|
-|Total SMSP Cycles|31334769792 cycles|40671707040 cycles|
-|Opt. Est. Speedup|8.321%|7.497%|
+| Metric                  | matmul_coal_optim | matmul_conflicts |
+| ----------------------- | ----------------- | ---------------- |
+| DRAM Frequency          | 5.00 GHz          | 5.00 GHz         |
+| SM Frequency            | 585.00 MHz        | 585.00 MHz       |
+| Elapsed Cycles          | 195856422 cycles  | 254197615 cycles |
+| Memory Throughput       | 75.41%            | 89.78%           |
+| DRAM Throughput         | 11.31%            | 8.72%            |
+| Duration                | 334.80 ms         | 434.53 ms        |
+| L1/TEX Cache Throughput | 89.44%            | 90.03%           |
+| L2 Cache Throughput     | 5.88%             | 4.53%            |
+| SM Active Cycles        | 195586939.57 cycl | 253892040 cycles |
+| Compute (SM) Throughput | 75.41%            | 89.78%           |
+| Block Size              | 1024              | 1024             |
+| Function Cache Conf.    | CachePreferNone   | CachePreferNone  |
+| Grid Size               | 16384             | 16384            |
+| Registers/Thread        | 41                | 36               |
+| Shared Mem Conf. Size   | 32.77 Kbyte       | 32.77 Kbyte      |
+| Driver Shared Memory    | 0                 | 0                |
+| Dynamic Shared Memory   | 0                 | 0                |
+| Static Shared Memory    | 8.19 Kbyte/block  | 8.45 Kbyte/block |
+| # SMs                   | 40                | 40               |
+| Threads                 | 16777216          | 16777216         |
+| Green Context           | 0                 | 0                |
+| Waves/SM                | 409.60            | 409.60           |
+| Block Limit SM          | 16                | 16               |
+| Block Limit Registers   | 1                 | 1                |
+| Block Limit Shared Mem  | 4                 | 3                |
+| Block Limit Warps       | 1                 | 1                |
+| Theoretical Ac Warps/SM | 32                | 32               |
+| Theoretical Occupancy   | 100%              | 100%             |
+| Achieved Occupancy      | 99.98%            | 99.99%           |
+| Achieved Active Warps/SM| 32.00             | 32.00            |
+| Avg DRAM Active Cycles  | 189220351.50 cycl | 189343963.50 cycl|
+| Total DRAM Cycles       | 13380792320 cycles| 17366819840 cycl |
+| Avg L1 Active Cycles    | 195586939.57 cycle| 253892040 cycles |
+| Total L1 Cycles         | 7833692448 cycles | 10167926760 cycle|
+| Avg L2 Active Cycles    | 76506660.69 cycles| 70395522.34 cycle|
+| Total L2 Cycles         | 9160054208 cycles | 11888626848 cycle|
+| Avg SM Active Cycles    | 195586939.57 cycle| 253892040 cycles |
+| Total SM Cycles         | 7833692448 cycles | 10167926760 cycle|
+| Avg SMSP Active Cycles  | 195587690.47 cycle| 253876400.93 cycl|
+| Total SMSP Cycles       | 31334769792 cycle | 40671707040 cycle|
+| Opt. Est. Speedup       | 8.321%            | 7.497%           |
 ```
