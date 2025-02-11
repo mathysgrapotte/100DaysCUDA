@@ -64,7 +64,7 @@ See Day4 for the implementation and notes for the algorithm.
 | Day 9    | Recap: re-implemented matmul memory coalescing and added debugging tools to understand that memory was indeed coalesced. |
 | Day 10   | Recap: re-implemented shared-memory and tiling.|
 | Day 11   | Implemented bank conflicts correction but got slower results, so investigating with profiler, see notes for more details. |
-| Day 12   |  |
+| Day 12   | More investigation with profiler, switched 1d blocks to 2d blocks but still saw slower results.  |
 | Day 13   |  |
 | Day 14   |  |
 | Day 15   |  |
