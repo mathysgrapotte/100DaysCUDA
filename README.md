@@ -65,7 +65,7 @@ See Day4 for the implementation and notes for the algorithm.
 | Day 10   | Recap: re-implemented shared-memory and tiling.|
 | Day 11   | Implemented bank conflicts correction but got slower results, so investigating with profiler, see notes for more details. |
 | Day 12   | More investigation with profiler, switched 1d blocks to 2d blocks but still saw slower results.  |
-| Day 13   |  |
+| Day 13   | Implemented tensor core matmul for hopper but still getting into compilation errors due to nvcc, see [here](https://github.com/skypjack/entt/issues/1082) |
 | Day 14   |  |
 | Day 15   |  |
 | Day 16   |  |
