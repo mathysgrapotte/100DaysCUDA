@@ -14,68 +14,55 @@ int num_blocks = num_pairs;
 
 #define BLOCK_SIZE 128
 
-__global__ void computeLogRatioVariance(float *d_Y, float *d_variances, int nb_samples, int nb_genes) {
-    // Compute log ratio for current pair
-    int pair_index = blockIdx.x;
-    int i = (int)((-1 + sqrt(1 + 8.0 * pair_index)) / 2.0) + 1;
-    int j = pair_index - (i * (i - 1)) / 2;
+__global__
+void computeLogRatioVariance(float *d_Y, float *d_variances, int nb_samples, int nb_genes) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    // Initialize shared memory for mean and variance
-    __shared__ float mean[BLOCK_SIZE];
-    __shared__ float variance[BLOCK_SIZE];
-    __shared__ float col_i[BLOCK_SIZE];
-    __shared__ float col_j[BLOCK_SIZE];
-    __shared__ float log_ratios[BLOCK_SIZE];  // New array to store original values
+    if (i < nb_genes && j < i) {
+        // Pack accumulators together to encourage fusion
+        float2 accum = make_float2(0.0f, 0.0f);
+        int k = 0;
 
-    // Initialize shared memory for mean and variance
-    mean[threadIdx.x] = 0.0f;
-    variance[threadIdx.x] = 0.0f;
+        // Process 4 samples at a time with vector loads
+        #pragma unroll
+        for (; k <= nb_samples - 4; k += 4) {
+            float4 y_i = *reinterpret_cast<float4*>(&d_Y[k + i * nb_samples]);
+            float4 y_j = *reinterpret_cast<float4*>(&d_Y[k + j * nb_samples]);
 
-    if (threadIdx.x < nb_samples) {
-        col_i[threadIdx.x] = d_Y[threadIdx.x + i * nb_samples];
-        col_j[threadIdx.x] = d_Y[threadIdx.x + j * nb_samples];
-    } // load data into shared memory (each thread loads one sample at a time, so we need to sync)
+            // Use intrinsics that compiler can fuse
+            #pragma unroll
+            for (int m = 0; m < 4; ++m) {
+                // __fdividef has lower precision but can be fused
+                float ratio = __fdividef((&y_i.x)[m], (&y_j.x)[m]);
+                // __logf can be fused with multiply/add operations
+                float log_val = __logf(ratio);
 
-    __syncthreads();
-
-    // First compute log ratios
-    if (threadIdx.x < nb_samples) {
-        float ratio = col_i[threadIdx.x] / col_j[threadIdx.x];
-        log_ratios[threadIdx.x] = log(ratio);  // Store original values
-        mean[threadIdx.x] = log_ratios[threadIdx.x];  // Copy for reduction
-    }
-    __syncthreads();
-
-    // Reduce to get sum for mean
-    for (int stride = BLOCK_SIZE/2; stride > 0; stride >>= 1) {
-        __syncthreads();
-        if (threadIdx.x < stride) {
-            mean[threadIdx.x] += mean[threadIdx.x + stride];
+                // Accumulate sum and square together
+                accum.x = __fmaf_rn(1.0f, log_val, accum.x); // sum += log_val
+                accum.y = __fmaf_rn(log_val, log_val, accum.y); // sumsq += log_val * log_val
+            }
         }
-    }
-    __syncthreads();
 
-    // Compute mean
-    float log_ratio_mean = mean[0] / nb_samples;
+        // Handle remaining elements with same fused operations
+        for (; k < nb_samples; ++k) {
+            float yi = d_Y[k + i * nb_samples];
+            float yj = d_Y[k + j * nb_samples];
 
-    // Compute squared differences
-    if (threadIdx.x < nb_samples) {
-        float diff = log_ratios[threadIdx.x] - log_ratio_mean;  // Use original values
-        variance[threadIdx.x] = diff * diff;
-    }
-    __syncthreads();
+            float ratio = __fdividef(yi, yj);
+            float log_val = __logf(ratio);
 
-    // Reduce again to get sum of squared differences
-    for (int stride = BLOCK_SIZE/2; stride > 0; stride >>= 1) { // >>= 1 is bitwise right shift by 1 (divide by 2)
-        __syncthreads();
-        if (threadIdx.x < stride) {
-            variance[threadIdx.x] += variance[threadIdx.x + stride];
+            accum.x = __fmaf_rn(1.0f, log_val, accum.x);
+            accum.y = __fmaf_rn(log_val, log_val, accum.y);
         }
-    }
 
-    // Store final result with (N-1) correction
-    if (threadIdx.x == 0) {
-        d_variances[pair_index] = variance[0] / (nb_samples - 1);
+        // Fused mean and variance computation
+        float inv_n = __frcp_rn(static_cast<float>(nb_samples));
+        float mean = accum.x * inv_n;
+        float variance = (accum.y - __fmul_rn(nb_samples, __fmul_rn(mean, mean))) * __frcp_rn(static_cast<float>(nb_samples - 1));
+
+        int pair_index = (i * (i - 1)) / 2 + j;
+        d_variances[pair_index] = variance;
     }
 }
 
@@ -168,7 +155,9 @@ PerformanceMetrics benchmarkLogVarianceRatio() {
     cudaEventElapsedTime(&metrics.memory_time, start, stop);
     
     cudaEventRecord(start);
-    computeLogRatioVariance<<<num_blocks, threads_per_block>>>(d_Y, d_variances_gpu, nb_samples, nb_genes);
+    dim3 blockDim(16, 16);
+    dim3 gridDim((nb_genes + blockDim.x - 1) / blockDim.x, (nb_genes + blockDim.y - 1) / blockDim.y);
+    computeLogRatioVariance<<<gridDim, blockDim>>>(d_Y, d_variances_gpu, nb_samples, nb_genes);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&metrics.kernel_time, start, stop);
